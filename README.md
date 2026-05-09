@@ -13,7 +13,11 @@ Cliente HTTP
 ┌─────────────────┐   TCP / RPC   ┌──────────────────────┐
 │  Client Gateway │ ────────────► │  Products Microservice│
 │  (este servicio)│               │  (host:port via TCP)  │
-└─────────────────┘               └──────────────────────┘
+│                 │               └──────────────────────┘
+│                 │   TCP / RPC   ┌──────────────────────┐
+│                 │ ────────────► │  Orders Microservice  │
+└─────────────────┘               │  (host:port via TCP)  │
+                                  └──────────────────────┘
 ```
 
 - **No** contiene lógica de negocio ni acceso a base de datos.
@@ -32,6 +36,10 @@ PORT=3000
 # Host y puerto donde escucha el microservicio de productos
 PRODUCTS_MICROSERVICE_HOST=localhost
 PRODUCTS_MICROSERVICE_PORT=3001
+
+# Host y puerto donde escucha el microservicio de órdenes
+ORDERS_MICROSERVICE_HOST=localhost
+ORDERS_MICROSERVICE_PORT=3002
 ```
 
 ---
@@ -63,6 +71,9 @@ Base URL: `http://localhost:{PORT}/api`
 | `POST` | `/api/products` | Crear un producto | `{ name, price }` |
 | `PATCH` | `/api/products/:id` | Actualizar un producto | `{ name?, price? }` |
 | `DELETE` | `/api/products/:id` | Eliminar un producto | — |
+| `GET` | `/api/orders` | Listar todas las órdenes | — |
+| `GET` | `/api/orders/:id` | Obtener una orden por UUID | — |
+| `POST` | `/api/orders` | Crear una orden | `{ totalAmount, totalItems, status }` |
 
 ### Ejemplo — Crear producto
 
@@ -82,26 +93,31 @@ src/
 ├── app.module.ts                    # Módulo raíz
 ├── config/
 │   ├── envs.ts                      # Carga y validación de variables de entorno (Joi)
-│   └── services.ts                  # Token de inyección: PRODUCT_SERVICE
+│   └── services.ts                  # Tokens de inyección: PRODUCT_SERVICE, ORDER_SERVICE
 ├── common/
 │   ├── dto/
 │   │   └── pagination.dto.ts        # DTO reutilizable para paginación
 │   └── exceptions/
 │       └── rpc-exception.filter.ts  # Convierte RpcException → HTTP response
-└── products/
-    ├── products.module.ts           # Registra el cliente TCP hacia el microservicio
-    ├── products.controller.ts       # Rutas REST → mensajes RPC
+├── products/
+│   ├── products.module.ts           # Registra el cliente TCP hacia products-ms
+│   ├── products.controller.ts       # Rutas REST → mensajes RPC
+│   └── dto/
+│       ├── create-product.dto.ts    # Validación de creación
+│       └── update-product.dto.ts    # Validación de actualización (PartialType)
+└── order/
+    ├── order.module.ts              # Registra el cliente TCP hacia orders-ms
+    ├── order.controller.ts          # Rutas REST → mensajes RPC
     └── dto/
-        ├── create-product.dto.ts    # Validación de creación
-        └── update-product.dto.ts    # Validación de actualización (PartialType)
+        └── create-order.dto.ts      # Validación de creación de orden
 ```
 
 ---
 
 ## Decisiones de diseño relevantes
 
-### Comunicación TCP con el microservicio
-`ProductsModule` registra un `ClientProxy` de NestJS usando `Transport.TCP`. Al inyectarlo en el controlador con el token `PRODUCT_SERVICE`, se pueden enviar mensajes con `client.send({ cmd: '...' }, payload)`.
+### Comunicación TCP con los microservicios
+`ProductsModule` y `OrderModule` registran cada uno un `ClientProxy` de NestJS usando `Transport.TCP`. Al inyectarlos en los controladores con los tokens `PRODUCT_SERVICE` y `ORDER_SERVICE` respectivamente, se envían mensajes con `client.send('pattern', payload)`.
 
 ### Manejo de errores RPC → HTTP
 El filtro `RpcCustomExceptionFilter` intercepta cualquier `RpcException`. Si el error contiene `{ status, message }`, lo reenvía al cliente HTTP con ese código de estado. En caso contrario responde con `400`.
